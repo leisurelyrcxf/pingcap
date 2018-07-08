@@ -2,16 +2,15 @@ package pingcap
 
 import (
 	"sync"
-	"fmt"
 )
 
-type result struct {
-	rows []*resultRow
+type Result struct {
+	Rows []*ResultRow
 }
 
-type resultRow struct {
-	a int64
-	avg float64
+type ResultRow struct {
+	A   int64
+	Avg float64
 }
 
 type aggStruct struct {
@@ -19,25 +18,33 @@ type aggStruct struct {
 	count int64
 }
 
-func group_by(fileName string, parallelNum int, divideNum int) (res *result, err error) {
+func GroupBy(fileName string, parallelNum int, divideNum int) (res *Result, err error) {
 	handlers, err := readParallel(fileName, parallelNum, divideNum)
 	if err != nil {
 		return nil, err
 	}
-	res = &result{
-		rows: make([]*resultRow, 0, 100),
+	res = &Result{
+		Rows: make([]*ResultRow, 0, 100),
 	}
-	var mu sync.Locker
+	var mu sync.Mutex
 	parallelNum = len(handlers)
+	var wg sync.WaitGroup
 	for i := 0; i < divideNum; i++ {
+		wg.Add(1)
+		idx := i
 		go func() {
+			defer wg.Done()
 			m := make(map[element]byte)
 			for {
 				done := 0
 				for j := 0; j < parallelNum; j++ {
 					select {
-					case element, ok := <- handlers[j].elements[i]:
+					case element, ok := <- handlers[j].elements[idx]:
 						if !ok {
+							if handlers[j].err != nil && err == nil {
+								err = handlers[j].err
+								break
+							}
 							done++
 							continue
 						}
@@ -45,8 +52,11 @@ func group_by(fileName string, parallelNum int, divideNum int) (res *result, err
 					default:
 						continue
 					}
+					if err != nil {
+						break
+					}
 				}
-				if done == parallelNum {
+				if err != nil || done == parallelNum {
 					break
 				}
 			}
@@ -60,28 +70,21 @@ func group_by(fileName string, parallelNum int, divideNum int) (res *result, err
 				}
 			}
 
-			qrResult := &result{
-				rows: make([]*resultRow, 0, 100),
+			qrResult := &Result{
+				Rows: make([]*ResultRow, 0, 100),
 			}
-			for ele := range mm {
-				qrResult.rows = append(qrResult.rows, &resultRow{a: ele, avg: float64(mm[ele].sum)/float64(mm[ele].count) })
+			for a := range mm {
+				qrResult.Rows = append(qrResult.Rows, &ResultRow{A: a, Avg: float64(mm[a].sum)/float64(mm[a].count) })
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			res.rows = append(res.rows, qrResult.rows...)
+			res.Rows = append(res.Rows, qrResult.Rows...)
 		} ()
 	}
 
-	return res, nil
-}
-
-
-func main() {
-	res, err := group_by("test.csv", 4, 4)
+	wg.Wait()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	for _, row := range res.rows {
-		fmt.Printf("a: %v, avg(distinct b): %v", row.a, row.avg)
-	}
+	return res, nil
 }

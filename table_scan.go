@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-const fileInputBufferSize = 1024
+const pageSize = 1024 * 4 //4kb
 const parallelMinSize = 1024*1024
 const csvDelimiter = '\t'
 
@@ -58,29 +58,34 @@ func readParallel(fileName string, parallelNum int, divideNum int) ([]handler, e
 
 
 
-	handlers := make([]handler, parallelNum, parallelNum)
+	handlers := make([]handler, parallelNum)
 
 	for i := 0; i < parallelNum; i++ {
+		idx := i
+		handlers[i].elements = make([]chan element, divideNum)
+		for j := 0; j < divideNum; j++ {
+			handlers[i].elements[j] = make(chan element, pageSize)
+		}
 		go func() {
-			handlers[i].elements = make([]chan<-element, divideNum)
 			defer func() {
-				for _, channel := range handlers[i].elements {
+				for _, channel := range handlers[idx].elements {
 					close(channel)
 				}
 			} ()
 
-			handlers[i].err = oneStream(fileName, handlers[i].elements, seekPositions[i], seekPositions[i+1] - seekPositions[i], divideNum)
+			handlers[idx].err = oneStream(fileName, handlers[idx].elements, seekPositions[idx], seekPositions[idx+1] - seekPositions[idx], divideNum)
 		}()
 	}
 	return handlers, nil
 }
 
+// align to new line
 func alignToRows(f *os.File, start int64) (int64, error) {
 	_, err := f.Seek(start, 0)
 	if err != nil {
 		return 0, err
 	}
-	buffer := make([]byte, fileInputBufferSize)
+	buffer := make([]byte, pageSize)
 	_, err = f.Read(buffer)
 	if err != nil {
 		return 0, err
@@ -99,7 +104,7 @@ func hash(num int64, devide int) int {
 const stateNumber = 1
 const stateNonNumber = 0
 
-func oneStream(fileName string, elements []chan<- element, seekStart int64, maxRead int64, devideNum int) error {
+func oneStream(fileName string, elements []chan element, seekStart int64, maxRead int64, devideNum int) error {
 	f, err := os.Open(fileName)
 	if err != nil {
 		return err
@@ -111,7 +116,7 @@ func oneStream(fileName string, elements []chan<- element, seekStart int64, maxR
 		return err
 	}
 
-	buffer := make([]byte, fileInputBufferSize)
+	buffer := make([]byte, pageSize)
 
 
 	state := stateNonNumber
@@ -119,21 +124,26 @@ func oneStream(fileName string, elements []chan<- element, seekStart int64, maxR
 	var first int64
 	var second int64
 	var numbersNumInRow int
+	var eofMet bool
 	leftRead := maxRead
-	for leftRead > 0 {
-		if leftRead < fileInputBufferSize {
+	for leftRead > 0 && !eofMet {
+		if leftRead < pageSize {
 			buffer = buffer[:leftRead]
 		}
 		nRead, err := f.Read(buffer)
-		if err != nil && err != io.EOF {
-			return err
+		if err != nil {
+			if err != io.EOF {
+				return err
+			}
+			eofMet = true
 		}
 		leftRead -= int64(nRead)
-		for _, b := range buffer {
+		for i := 0; i < nRead; i++ {
+			b := buffer[i]
 			switch state {
 			case stateNonNumber:
 				if !(b >= '0' && b <= '9') {
-					return fmt.Errorf("unknonw input format: number expected")
+					return fmt.Errorf("unknown input format: number expected")
 				}
 				number = append(number, b)
 				state = stateNumber
@@ -153,7 +163,7 @@ func oneStream(fileName string, elements []chan<- element, seekStart int64, maxR
 					state = stateNonNumber
 				} else if b == '\n' {
 					if numbersNumInRow != 1 {
-						return fmt.Errorf("numbers in a row not 2")
+						return fmt.Errorf("numbers in a row less than 2")
 					}
 					second, err = strconv.ParseInt(string(number), 0, 64)
 					if err != nil {
