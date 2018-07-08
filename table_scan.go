@@ -45,7 +45,7 @@ func readParallel(fileName string, parallelNum int, divideNum int) ([]handler, e
 	for i := 0; i < parallelNum; i++ {
 		seekPositions[i] = int64(i) * split
 		if i > 0 {
-			seekPositions[parallelNum], err = alignToRows(f, seekPositions[parallelNum])
+			seekPositions[i], err = alignToNewLine(f, seekPositions[i])
 			if err != nil {
 				return nil, err
 			}
@@ -77,7 +77,7 @@ func readParallel(fileName string, parallelNum int, divideNum int) ([]handler, e
 }
 
 // align to new line
-func alignToRows(f *os.File, start int64) (int64, error) {
+func alignToNewLine(f *os.File, start int64) (int64, error) {
 	_, err := f.Seek(start, 0)
 	if err != nil {
 		return 0, err
@@ -160,6 +160,10 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 					state = stateNonNumber
 				} else if b == '\n' {
 					if numbersNumInRow != 1 {
+						//fmt.Println(number)
+						//fmt.Println(first)
+						//fmt.Println(second)
+						//fmt.Println(buffer)
 						return fmt.Errorf("numbers in a row less than 2")
 					}
 					second, err = strconv.ParseInt(string(number), 0, 64)
