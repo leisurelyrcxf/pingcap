@@ -35,16 +35,13 @@ func readParallel(fileName string, parallelNum int, divideNum int) ([]handler, e
 		// Could not obtain stat, handle error
 		return nil, err
 	}
-
-
-
 	size := fi.Size()
 	if size < parallelMinSize {
 		parallelNum = 1
 	}
 
 	split := size/int64(parallelNum)
-	seekPositions := make([]int64, parallelNum+1, parallelNum+1)
+	seekPositions := make([]int64, parallelNum+1)
 	for i := 0; i < parallelNum; i++ {
 		seekPositions[i] = int64(i) * split
 		if i > 0 {
@@ -104,7 +101,7 @@ func hash(num int64, devide int) int {
 const stateNumber = 1
 const stateNonNumber = 0
 
-func oneStream(fileName string, elements []chan element, seekStart int64, maxRead int64, devideNum int) error {
+func oneStream(fileName string, elements []chan element, seekStart int64, maxRead int64, divideNum int) error {
 	f, err := os.Open(fileName)
 	if err != nil {
 		return err
@@ -169,12 +166,12 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 					if err != nil {
 						return err
 					}
-					elements[hash(first, devideNum)]<-element{a: first, b: second}
+					elements[hash(first, divideNum)]<-element{a: first, b: second}
 					number = number[:0]
 					numbersNumInRow = 0
 					state = stateNonNumber
 				} else {
-					return fmt.Errorf("unknonw input format")
+					return fmt.Errorf("unknown input character '%v'", b)
 				}
 			}
 		}

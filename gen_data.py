@@ -18,13 +18,13 @@ for i in range(second):
 
 
 for i in range(first):
-	fw.write("2")
+	fw.write("1234")
 	fw.write("\t")
 	fw.write("1")
 	fw.write("\n")
 
 for i in range(second):
-	fw.write("2")
+	fw.write("1234")
 	fw.write("\t")
 	fw.write("2")
 	fw.write("\n")
