@@ -18,13 +18,13 @@ type element struct {
 }
 
 type handler struct {
-	elements chan<-element
+	elements []chan element
 	err error
 }
 
 
 // give a file, return multiple channel, channel size is max to 1026
-func readParallel(fileName string, parallelNum int) ([]handler, error) {
+func readParallel(fileName string, parallelNum int, divideNum int) ([]handler, error) {
 	f, err := os.Open(fileName)
 	if err != nil {
 		return nil, err
@@ -62,9 +62,14 @@ func readParallel(fileName string, parallelNum int) ([]handler, error) {
 
 	for i := 0; i < parallelNum; i++ {
 		go func() {
-			defer close(handlers[i].elements)
+			handlers[i].elements = make([]chan<-element, divideNum)
+			defer func() {
+				for _, channel := range handlers[i].elements {
+					close(channel)
+				}
+			} ()
 
-			handlers[i].err = oneStream(fileName, handlers[i].elements, seekPositions[i], seekPositions[i+1] - seekPositions[i])
+			handlers[i].err = oneStream(fileName, handlers[i].elements, seekPositions[i], seekPositions[i+1] - seekPositions[i], divideNum)
 		}()
 	}
 	return handlers, nil
@@ -87,10 +92,14 @@ func alignToRows(f *os.File, start int64) (int64, error) {
 	return start + offset + 1, nil
 }
 
+func hash(num int64, devide int) int {
+	return int(num%int64(devide))
+}
+
 const stateNumber = 1
 const stateNonNumber = 0
 
-func oneStream(fileName string, elements chan<- element, seekStart int64, maxRead int64) error {
+func oneStream(fileName string, elements []chan<- element, seekStart int64, maxRead int64, devideNum int) error {
 	f, err := os.Open(fileName)
 	if err != nil {
 		return err
@@ -150,7 +159,7 @@ func oneStream(fileName string, elements chan<- element, seekStart int64, maxRea
 					if err != nil {
 						return err
 					}
-					elements<-element{a: first, b: second}
+					elements[hash(first, devideNum)]<-element{a: first, b: second}
 					number = number[:0]
 					numbersNumInRow = 0
 					state = stateNonNumber
