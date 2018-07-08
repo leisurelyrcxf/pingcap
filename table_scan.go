@@ -88,8 +88,11 @@ func alignToNewLine(f *os.File, start int64) (int64, error) {
 		return 0, err
 	}
 	offset := int64(0)
-	for buffer[offset] != '\n' {
+	for offset < pageSize && buffer[offset] != '\n' {
 		offset++
+	}
+	if offset == pageSize {
+		return start, fmt.Errorf("can't find '\n'")
 	}
 	return start + offset + 1, nil
 }
