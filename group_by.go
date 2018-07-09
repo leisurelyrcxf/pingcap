@@ -4,6 +4,7 @@ import (
 	"sync"
 	"os"
 	"math"
+	"reflect"
 )
 
 type Result struct {
@@ -37,33 +38,42 @@ func GroupBy(fileName string) (res *Result, err error) {
 		go func() {
 			defer wg.Done()
 			m := make(map[element]byte)
-			for {
-				done := 0
-				for j := 0; j < parallelReaderNum; j++ {
-					select {
-					case element, ok := <- handlers[j].elements[divideIdx]:
-						if !ok {
-							if handlers[j].err != nil {
-								err = handlers[j].err
-								break
-							}
-							done++
-							continue
-						}
-						m[element] = 0
-					default:
-						continue
+
+			cases := make([]reflect.SelectCase, parallelReaderNum)
+			tmpHandlers := make([]handler, parallelReaderNum)
+			for j := 0; j < parallelReaderNum; j++ {
+				cases[j] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(handlers[j].elements[divideIdx])}
+				tmpHandlers[j] = handlers[j]
+			}
+			for len(cases) > 0 {
+				//for j := 0; j < parallelReaderNum; j++ {
+				//	select {
+				//	case element, ok := <- handlers[j].elements[divideIdx]:
+				//		if !ok {
+				//			if handlers[j].err != nil {
+				//				err = handlers[j].err
+				//				break
+				//			}
+				//			done++
+				//			continue
+				//		}
+				//		m[element] = 0
+				//	}
+				//	if err != nil {
+				//		break
+				//	}
+				//}
+				chosen, value, ok := reflect.Select(cases)
+				if !ok {
+					if tmpHandlers[chosen].err != nil {
+						err = tmpHandlers[chosen].err
+						return
 					}
-					if err != nil {
-						break
-					}
+					cases = append(cases[:chosen], cases[chosen+1:]...)
+					tmpHandlers = append(tmpHandlers[:chosen], tmpHandlers[chosen+1:]...)
+					continue
 				}
-				if err != nil || done == parallelReaderNum {
-					// has error or all readers of divideIdx
-					// has been read, which means division of
-					// divideIdx has been ready
-					break
-				}
+				m[value.Interface().(element)] = 0
 			}
 
 			mm := make(map[int64]aggStruct)
