@@ -17,7 +17,7 @@ const blockSize = 1024 * 4 //4kb
 // parallelReadMinSize is the mean size for using parallel read
 const parallelReadMinSize = 1024*1024 // 1 MB
 var defaultParallelReaderNum = runtime.NumCPU()
-var defaultInMemoryDivide = runtime.NumCPU()
+var defaultInMemoryDivide = runtime.NumCPU()/2
 
 // change this according to your application
 var maxAvailableMemory int64 = 1024*1024*256 // 256 MB
