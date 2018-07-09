@@ -20,7 +20,7 @@ var defaultParallelReaderNum = runtime.NumCPU()
 var defaultInMemoryDivide = runtime.NumCPU()/2
 
 // change this according to your application
-var maxAvailableMemory int64 = 1024*1024*256 // 256 MB
+var maxAvailableMemory int64 = 1024*1024*1024 // 256 MB
 //var maxAvailableMemory int64 = 1024*1024*48 // 48 MB
 
 // estimated value, cause for every record in S, in the worst case

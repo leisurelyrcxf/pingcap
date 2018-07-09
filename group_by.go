@@ -37,32 +37,37 @@ func GroupBy(fileName string) (res *Result, err error) {
 		go func() {
 			defer wg.Done()
 			m := make(map[element]byte)
-			for {
-				done := 0
-				for j := 0; j < parallelReaderNum; j++ {
-					select {
-					case element, ok := <- handlers[j].elements[divideIdx]:
-						if !ok {
-							if handlers[j].err != nil {
-								err = handlers[j].err
-								break
-							}
-							done++
-							continue
-						}
-						m[element] = 0
-					default:
-						continue
+
+			agg := make(chan element)
+			done := 0
+			var aggMutex sync.Mutex
+			for j := 0; j < parallelReaderNum; j++ {
+				go func(c chan element) {
+					for ele := range c {
+						agg <- ele
 					}
-					if err != nil {
-						break
+					aggMutex.Lock()
+					defer aggMutex.Unlock()
+					done++
+					if done == parallelReaderNum {
+						close(agg)
 					}
+				}(handlers[j].elements[divideIdx])
+			}
+			for  {
+				select {
+				case element, ok := <-agg:
+					if !ok {
+						goto jump
+					}
+					m[element] = 0
 				}
-				if err != nil || done == parallelReaderNum {
-					// has error or all readers of divideIdx
-					// has been read, which means division of
-					// divideIdx has been ready
-					break
+			}
+			jump:
+			for j := 0; j < parallelReaderNum; j++ {
+				if handlers[j].err != nil {
+					err = handlers[j].err
+					return
 				}
 			}
 
