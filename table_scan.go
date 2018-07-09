@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strconv"
 	//"runtime"
+	"io/ioutil"
+	"strings"
 )
 
 const pageSize = 1024 * 4 //4kb
@@ -160,9 +162,27 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 		}
 	}
 
+
+
+	return readFile(f, maxRead, func(e element) error {
+		hashed := hash(e.a, divideNum)
+		if hashed < inMemoryDivideNum {
+			elements[hashed]<-e
+		} else {
+			divideRelativeIdx := hashed - inMemoryDivideNum
+			var err error
+			fwOffsets[divideRelativeIdx], err = writeBuffered(fwHandlers[divideRelativeIdx], fwBuffers[divideRelativeIdx],
+				fwOffsets[divideRelativeIdx], pageSize, e)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func readFile(f *os.File, maxRead int64, callback func(element) error) error {
 	buffer := make([]byte, pageSize)
-
-
 	state := stateNonNumber
 	number := make([]byte, 0, 64)
 	var first int64
@@ -213,13 +233,9 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 					if err != nil {
 						return err
 					}
-					hashed := hash(first, divideNum)
-					if hashed < inMemoryDivideNum {
-						elements[hashed]<-element{a: first, b: second}
-					} else {
-						divideRelativeIdx := hashed - inMemoryDivideNum
-						fwOffsets[divideRelativeIdx] = writeBuffered(fwHandlers[divideRelativeIdx], fwBuffers[divideRelativeIdx],
-							fwOffsets[divideRelativeIdx], pageSize, element{a: first, b: second})
+					err = callback(element{a:first, b:second})
+					if err != nil {
+						return err
 					}
 					number = number[:0]
 					numbersNumInRow = 0
@@ -230,7 +246,6 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 			}
 		}
 	}
-
 	return nil
 }
 
@@ -242,18 +257,55 @@ func getOutputFileName(fileName string, divideIdx int, seekStart int64) string {
 	return fileName + "_divide" + strconv.Itoa(divideIdx) + "_seek" + strconv.FormatInt(seekStart, 10) +  ".tmp"
 }
 
-func writeBuffered(fw *os.File, buffer []byte, offset int, maxBufferSize int, e element) (newOffset int) {
+func getOutputFileNames(fileName string, divideIdx int) (files []string, err error) {
+	tmpIdx := strings.LastIndex(fileName, "/")
+	var fileDir string
+	var prefix string
+	if tmpIdx == -1 {
+		fileDir = "."
+		prefix = fileName + "_divide" + strconv.Itoa(divideIdx) + "_seek"
+	} else {
+		fileDir = fileName[:tmpIdx]
+		prefix = fileName[tmpIdx+1:] + "_divide" + strconv.Itoa(divideIdx) + "_seek"
+	}
+	dir, err := ioutil.ReadDir(fileDir)
+	if err != nil {
+		return nil, err
+	}
+
+	PthSep := string(os.PathSeparator)
+
+	for _, fi := range dir {
+		if fi.IsDir() { // 忽略目录
+			continue
+		}
+		if strings.HasPrefix(fi.Name(), prefix) {
+			files = append(files, fileDir+PthSep+fi.Name())
+		}
+	}
+
+	return files, nil
+
+}
+
+func writeBuffered(fw *os.File, buffer []byte, offset int, maxBufferSize int, e element) (newOffset int, err error) {
 	row := []byte(elementToRow(e))
 	for _, b := range row {
 		buffer[offset] = b
 		offset++
 		if offset == maxBufferSize {
-			fw.Write(buffer)
-			fw.Sync()
+			_, err := fw.Write(buffer)
+			if err != nil {
+				return 0, err
+			}
+			err = fw.Sync()
+			if err != nil {
+				return 0, err
+			}
 			offset = 0
 		}
 	}
-	return offset
+	return offset, nil
 }
 
 func elementToRow(e element) string {
