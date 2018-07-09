@@ -18,8 +18,8 @@ type aggStruct struct {
 	count int64
 }
 
-func GroupBy(fileName string, parallelNum int, divideNum int) (res *Result, err error) {
-	handlers, err := readParallel(fileName, parallelNum, divideNum)
+func GroupBy(fileName string) (res *Result, err error) {
+	handlers, parallelNum, _, inMemoryDivideNum, err := readParallel(fileName)
 	if err != nil {
 		return nil, err
 	}
@@ -27,11 +27,10 @@ func GroupBy(fileName string, parallelNum int, divideNum int) (res *Result, err 
 		Rows: make([]*ResultRow, 0, 100),
 	}
 	var mu sync.Mutex
-	parallelNum = len(handlers)
 	var wg sync.WaitGroup
-	for i := 0; i < divideNum; i++ {
+	for i := 0; i < inMemoryDivideNum; i++ {
 		wg.Add(1)
-		idx := i
+		divideIdx := i
 		go func() {
 			defer wg.Done()
 			m := make(map[element]byte)
@@ -39,7 +38,7 @@ func GroupBy(fileName string, parallelNum int, divideNum int) (res *Result, err 
 				done := 0
 				for j := 0; j < parallelNum; j++ {
 					select {
-					case element, ok := <- handlers[j].elements[idx]:
+					case element, ok := <- handlers[j].elements[divideIdx]:
 						if !ok {
 							if handlers[j].err != nil && err == nil {
 								err = handlers[j].err

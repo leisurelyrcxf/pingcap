@@ -6,10 +6,22 @@ import (
 	"io"
 	"fmt"
 	"strconv"
+	"runtime"
 )
 
 const pageSize = 1024 * 4 //4kb
-const parallelMinSize = 1024*1024
+
+const parallelReadMinSize = 1024*1024
+var defaultParallelReadNum = runtime.NumCPU()
+
+// change this according to your application
+//var maxAvailableMemory = 1024*1024*256 // 256 MB
+var maxAvailableMemory int64 = 1024*1024
+
+// estimated value, cause for every record in S,
+// there should be two hash table records using that value
+const memoryConflateRate = 5
+
 const csvDelimiter = '\t'
 
 type element struct {
@@ -24,43 +36,56 @@ type handler struct {
 
 
 // give a file, return multiple channel, channel size is max to 1026
-func readParallel(fileName string, parallelNum int, divideNum int) ([]handler, error) {
+func readParallel(fileName string) (handlers []handler, parallelReadNum, divideNum, inMemoryDivideNum int, err error) {
 	f, err := os.Open(fileName)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, 0, err
 	}
 	defer f.Close()
+
 	fi, err := f.Stat()
 	if err != nil {
 		// Could not obtain stat, handle error
-		return nil, err
+		return nil, 0, 0, 0, err
 	}
 	size := fi.Size()
-	if size < parallelMinSize {
-		parallelNum = 1
+	if size < parallelReadMinSize {
+		parallelReadNum = 1
+		divideNum = runtime.NumCPU()
+		inMemoryDivideNum = divideNum
+	} else if size*memoryConflateRate < maxAvailableMemory {
+		// all can be put into memory
+		parallelReadNum = defaultParallelReadNum
+		divideNum = runtime.NumCPU()
+		inMemoryDivideNum = divideNum
+	} else {
+		parallelReadNum = defaultParallelReadNum
+		divideNum = int(size*int64(memoryConflateRate)/int64(maxAvailableMemory)+1)*runtime.NumCPU()
+		// in this case, only first runtime.NumCPU() divisions will be in memory
+		inMemoryDivideNum = runtime.NumCPU()
 	}
 
-	split := size/int64(parallelNum)
-	seekPositions := make([]int64, parallelNum+1)
-	for i := 0; i < parallelNum; i++ {
+	split := size/int64(parallelReadNum)
+	seekPositions := make([]int64, parallelReadNum+1)
+	seekPositions[parallelReadNum] = math.MaxInt64
+	for i := 0; i < parallelReadNum; i++ {
 		seekPositions[i] = int64(i) * split
 		if i > 0 {
 			seekPositions[i], err = alignToNewLine(f, seekPositions[i])
 			if err != nil {
-				return nil, err
+				return nil, 0, 0, 0, err
 			}
 		}
 	}
-	seekPositions[parallelNum] = math.MaxInt64
 
 
 
-	handlers := make([]handler, parallelNum)
+	handlers = make([]handler, parallelReadNum)
 
-	for i := 0; i < parallelNum; i++ {
+	for i := 0; i < parallelReadNum; i++ {
 		idx := i
-		handlers[i].elements = make([]chan element, divideNum)
-		for j := 0; j < divideNum; j++ {
+		handlers[i].elements = make([]chan element, inMemoryDivideNum)
+		for j := 0; j < inMemoryDivideNum; j++ {
 			handlers[i].elements[j] = make(chan element, pageSize)
 		}
 		go func() {
@@ -70,10 +95,10 @@ func readParallel(fileName string, parallelNum int, divideNum int) ([]handler, e
 				}
 			} ()
 
-			handlers[idx].err = oneStream(fileName, handlers[idx].elements, seekPositions[idx], seekPositions[idx+1] - seekPositions[idx], divideNum)
+			handlers[idx].err = oneStream(fileName, handlers[idx].elements, seekPositions[idx], seekPositions[idx+1] - seekPositions[idx], divideNum, inMemoryDivideNum)
 		}()
 	}
-	return handlers, nil
+	return handlers, parallelReadNum, divideNum, inMemoryDivideNum, nil
 }
 
 // align to new line
@@ -97,14 +122,14 @@ func alignToNewLine(f *os.File, start int64) (int64, error) {
 	return start + offset + 1, nil
 }
 
-func hash(num int64, devide int) int {
-	return int(num%int64(devide))
+func hash(num int64, divide int) int {
+	return int(num%int64(divide))
 }
 
 const stateNumber = 1
 const stateNonNumber = 0
 
-func oneStream(fileName string, elements []chan element, seekStart int64, maxRead int64, divideNum int) error {
+func oneStream(fileName string, elements []chan element, seekStart int64, maxRead int64, divideNum, inMemoryDivideNum int) error {
 	f, err := os.Open(fileName)
 	if err != nil {
 		return err
@@ -114,6 +139,27 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 	_, err = f.Seek(seekStart, 0)
 	if err != nil {
 		return err
+	}
+
+	var fwHandlers []*os.File
+	var fwOffsets []int
+	var fwBuffers [][]byte
+	if inMemoryDivideNum < divideNum {
+		fwHandlers = make([]*os.File, divideNum - inMemoryDivideNum)
+		fwOffsets = make([]int, divideNum - inMemoryDivideNum)
+		fwBuffers = make([][]byte, divideNum - inMemoryDivideNum)
+		for i := inMemoryDivideNum; i < divideNum; i++ {
+			divideIdx := i
+			divideRelativeIdx := divideIdx - inMemoryDivideNum
+			baseName := getOutputFileName(fileName, divideIdx, seekStart)
+			fwHandlers[divideRelativeIdx], err = os.OpenFile(baseName, os.O_WRONLY | os.O_CREATE, 0755)
+			if err != nil {
+				return err
+			}
+			defer fwHandlers[divideRelativeIdx].Close()
+			fwOffsets[divideRelativeIdx] = 0
+			fwBuffers[divideRelativeIdx] = make([]byte, pageSize)
+		}
 	}
 
 	buffer := make([]byte, pageSize)
@@ -163,17 +209,20 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 					state = stateNonNumber
 				} else if b == '\n' {
 					if numbersNumInRow != 1 {
-						//fmt.Println(number)
-						//fmt.Println(first)
-						//fmt.Println(second)
-						//fmt.Println(buffer)
 						return fmt.Errorf("numbers in a row less than 2")
 					}
 					second, err = strconv.ParseInt(string(number), 0, 64)
 					if err != nil {
 						return err
 					}
-					elements[hash(first, divideNum)]<-element{a: first, b: second}
+					hashed := hash(first, divideNum)
+					if hashed < inMemoryDivideNum {
+						elements[hashed]<-element{a: first, b: second}
+					} else {
+						divideRelativeIdx := hashed - inMemoryDivideNum
+						fwOffsets[divideRelativeIdx] = writeBuffered(fwHandlers[divideRelativeIdx], fwBuffers[divideRelativeIdx],
+							fwOffsets[divideRelativeIdx], pageSize, element{a: first, b: second})
+					}
 					number = number[:0]
 					numbersNumInRow = 0
 					state = stateNonNumber
@@ -185,4 +234,25 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 	}
 
 	return nil
+}
+
+func getOutputFileName(fileName string, divideIdx int, seekStart int64) string {
+	return fileName + "_divide" + strconv.Itoa(divideIdx) + "_seek" + strconv.FormatInt(seekStart, 10) +  ".tmp"
+}
+
+func writeBuffered(fw *os.File, buffer []byte, offset int, maxBufferSize int, e element) (newOffset int) {
+	row := []byte(elementToRow(e))
+	for _, b := range row {
+		buffer[offset] = b
+		offset++
+		if offset == maxBufferSize {
+			fw.Write(buffer)
+			offset = 0
+		}
+	}
+	return offset
+}
+
+func elementToRow(e element) string {
+	return strconv.FormatInt(e.a, 10) + "\t" + strconv.FormatInt(e.b, 10) + "\n"
 }
