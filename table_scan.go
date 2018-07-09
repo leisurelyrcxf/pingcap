@@ -11,8 +11,8 @@ import (
 	"runtime"
 )
 
-// pageSize is the disk page size, usually 4kb
-const pageSize = 1024 * 4 //4kb
+// blockSize is the disk block size, usually 4kb
+const blockSize = 1024 * 4 //4kb
 
 // parallelReadMinSize is the mean size for using parallel read
 const parallelReadMinSize = 1024*1024 // 1 MB
@@ -20,7 +20,7 @@ var defaultParallelReadNum = runtime.NumCPU()
 var defaultInMemoryDivide = runtime.NumCPU()
 
 // change this according to your application
-var maxAvailableMemory int64 = 1024*1024*256 // 256 MB
+var maxAvailableMemory int64 = 1024*1024*256*4 // 256 MB
 //var maxAvailableMemory int64 = 1024*1024*48 // 48 MB
 
 // estimated value, cause for every record in S, in the worst case
@@ -94,7 +94,7 @@ func readParallel(fileName string) (handlers []handler, parallelReadNum, divideN
 		idx := i
 		handlers[i].elements = make([]chan element, inMemoryDivideNum)
 		for j := 0; j < inMemoryDivideNum; j++ {
-			handlers[i].elements[j] = make(chan element, pageSize)
+			handlers[i].elements[j] = make(chan element, blockSize)
 		}
 		go func() {
 			defer func() {
@@ -114,16 +114,16 @@ func alignToNewLine(f *os.File, start int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	buffer := make([]byte, pageSize)
+	buffer := make([]byte, blockSize)
 	_, err = f.Read(buffer)
 	if err != nil {
 		return 0, err
 	}
 	offset := int64(0)
-	for offset < pageSize && buffer[offset] != '\n' {
+	for offset < blockSize && buffer[offset] != '\n' {
 		offset++
 	}
-	if offset == pageSize {
+	if offset == blockSize {
 		return start, fmt.Errorf("can't find '\n'")
 	}
 	return start + offset + 1, nil
@@ -166,7 +166,7 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 			}
 			defer fwHandlers[divideRelativeIdx].Close()
 			fwOffsets[divideRelativeIdx] = 0
-			fwBuffers[divideRelativeIdx] = make([]byte, pageSize)
+			fwBuffers[divideRelativeIdx] = make([]byte, blockSize)
 		}
 	}
 
@@ -180,7 +180,7 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 			divideRelativeIdx := hashed - inMemoryDivideNum
 			var err error
 			fwOffsets[divideRelativeIdx], err = writeBuffered(fwHandlers[divideRelativeIdx], fwBuffers[divideRelativeIdx],
-				fwOffsets[divideRelativeIdx], pageSize, e)
+				fwOffsets[divideRelativeIdx], blockSize, e)
 			if err != nil {
 				return err
 			}
@@ -207,7 +207,7 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 }
 
 func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onEnd func() error) error {
-	buffer := make([]byte, pageSize)
+	buffer := make([]byte, blockSize)
 	state := stateNonNumber
 	number := make([]byte, 0, 64)
 	var first int64
@@ -216,7 +216,7 @@ func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onE
 	var eofMet bool
 	leftRead := maxRead
 	for leftRead > 0 && !eofMet {
-		if leftRead < pageSize {
+		if leftRead < blockSize {
 			buffer = buffer[:leftRead]
 		}
 		nRead, err := f.Read(buffer)

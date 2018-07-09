@@ -40,7 +40,7 @@ func main() {
 			errNum++
 		}
 	}
-	if errNum == 0 && len(res.Rows) == 10000 {
+	if errNum == 0 && len(res.Rows) == 1000 {
 		fmt.Println("test succeeded")
 	} else {
 		fmt.Println("regressioned")
