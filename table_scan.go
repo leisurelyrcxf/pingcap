@@ -6,17 +6,18 @@ import (
 	"io"
 	"fmt"
 	"strconv"
-	"runtime"
+	//"runtime"
 )
 
 const pageSize = 1024 * 4 //4kb
 
 const parallelReadMinSize = 1024*1024
-var defaultParallelReadNum = runtime.NumCPU()
+var defaultParallelReadNum = 2 //runtime.NumCPU()
+var defaultInMemoryDivide = 2 //runtime.NumCPU()
 
 // change this according to your application
 //var maxAvailableMemory = 1024*1024*256 // 256 MB
-var maxAvailableMemory int64 = 1024*1024
+var maxAvailableMemory int64 = 1024*1024*25
 
 // estimated value, cause for every record in S,
 // there should be two hash table records using that value
@@ -51,18 +52,19 @@ func readParallel(fileName string) (handlers []handler, parallelReadNum, divideN
 	size := fi.Size()
 	if size < parallelReadMinSize {
 		parallelReadNum = 1
-		divideNum = runtime.NumCPU()
-		inMemoryDivideNum = divideNum
+		divideNum = defaultInMemoryDivide
+		inMemoryDivideNum = defaultInMemoryDivide
 	} else if size*memoryConflateRate < maxAvailableMemory {
 		// all can be put into memory
 		parallelReadNum = defaultParallelReadNum
-		divideNum = runtime.NumCPU()
-		inMemoryDivideNum = divideNum
+		divideNum = defaultInMemoryDivide
+		inMemoryDivideNum = defaultInMemoryDivide
 	} else {
 		parallelReadNum = defaultParallelReadNum
-		divideNum = int(size*int64(memoryConflateRate)/int64(maxAvailableMemory)+1)*runtime.NumCPU()
-		// in this case, only first runtime.NumCPU() divisions will be in memory
-		inMemoryDivideNum = runtime.NumCPU()
+		divideNum = int(size*int64(memoryConflateRate)/int64(maxAvailableMemory)+1)*defaultInMemoryDivide
+		// in this case, only first defaultInMemoryDivide divisions will be in memory
+		// others will be flushed onto disks
+		inMemoryDivideNum = defaultInMemoryDivide
 	}
 
 	split := size/int64(parallelReadNum)

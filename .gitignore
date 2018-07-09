@@ -1,3 +1,4 @@
 *.csv
 test.csv
 .idea/*
+*.tmp

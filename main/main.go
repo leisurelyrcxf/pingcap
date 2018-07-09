@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	res, err := pingcap.GroupBy("test.csv")
+	res, err := pingcap.GroupBy("data/test.csv")
 	if err != nil {
 		panic(err)
 	}
