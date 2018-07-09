@@ -9,17 +9,18 @@ import (
 	//"runtime"
 	"io/ioutil"
 	"strings"
+	"runtime"
 )
 
 const pageSize = 1024 * 4 //4kb
 
 const parallelReadMinSize = 1024*1024
-var defaultParallelReadNum = 2 //runtime.NumCPU()
-var defaultInMemoryDivide = 2 //runtime.NumCPU()
+var defaultParallelReadNum = runtime.NumCPU()
+var defaultInMemoryDivide = runtime.NumCPU()
 
 // change this according to your application
-//var maxAvailableMemory = 1024*1024*256 // 256 MB
-var maxAvailableMemory int64 = 1024*1024*48
+var maxAvailableMemory int64 = 1024*1024*256 // 256 MB
+//var maxAvailableMemory int64 = 1024*1024*48 // 48 MB
 
 // estimated value, cause for every record in S, in the worst case
 // there should be two hash table records using that value
@@ -222,8 +223,8 @@ func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onE
 			b := buffer[i]
 			switch state {
 			case stateNonNumber:
-				if !(b >= '0' && b <= '9') {
-					return fmt.Errorf("unknown input format: number expected")
+				if b < '0' || b > '9' {
+					return fmt.Errorf("unknown input format: number 1-9 expected, but met '%v'", rune(b))
 				}
 				number = append(number, b)
 				state = stateNumber
@@ -257,7 +258,7 @@ func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onE
 					numbersNumInRow = 0
 					state = stateNonNumber
 				} else {
-					return fmt.Errorf("unknown input character '%v'", b)
+					return fmt.Errorf("unknown input character '%v'", rune(b))
 				}
 			}
 		}
