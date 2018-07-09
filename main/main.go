@@ -5,6 +5,7 @@ import (
 	"pingcap"
 	"sort"
 	"math"
+	"time"
 )
 
 type sortedRows []*pingcap.ResultRow
@@ -26,10 +27,12 @@ func (sr sortedRows) Swap(i, j int) {
 }
 
 func main() {
+	startTime := time.Now()
 	res, err := pingcap.GroupBy("data/test.csv")
 	if err != nil {
 		panic(err)
 	}
+	duration := time.Now().Sub(startTime)
 	fmt.Printf("a\tavg(distinct b)\n")
 	sort.Sort(sortedRows(res.Rows))
 
@@ -42,6 +45,7 @@ func main() {
 	}
 	if errNum == 0 && len(res.Rows) == 1000 {
 		fmt.Println("test succeeded")
+		fmt.Println("cost %v", duration)
 	} else {
 		fmt.Println("regressioned")
 	}
