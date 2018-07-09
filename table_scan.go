@@ -151,8 +151,8 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 		for i := inMemoryDivideNum; i < divideNum; i++ {
 			divideIdx := i
 			divideRelativeIdx := divideIdx - inMemoryDivideNum
-			baseName := getOutputFileName(fileName, divideIdx, seekStart)
-			fwHandlers[divideRelativeIdx], err = os.OpenFile(baseName, os.O_WRONLY | os.O_CREATE, 0755)
+			tmpFileName := getTmpFileName(fileName, divideIdx, seekStart)
+			fwHandlers[divideRelativeIdx], err = os.OpenFile(tmpFileName, os.O_WRONLY | os.O_CREATE, 0755)
 			if err != nil {
 				return err
 			}
@@ -253,20 +253,20 @@ func hash(num int64, divide int) int {
 	return int(num%int64(divide))
 }
 
-func getOutputFileName(fileName string, divideIdx int, seekStart int64) string {
-	return fileName + "_divide" + strconv.Itoa(divideIdx) + "_seek" + strconv.FormatInt(seekStart, 10) +  ".tmp"
+func getTmpFileName(fileName string, divideIdx int, seekStart int64) string {
+	return getTmpFilePrefix(fileName, divideIdx) + strconv.FormatInt(seekStart, 10) +  ".tmp"
 }
 
-func getOutputFileNames(fileName string, divideIdx int) (files []string, err error) {
+func getTmpFileNames(fileName string, divideIdx int) (files []string, err error) {
 	tmpIdx := strings.LastIndex(fileName, "/")
 	var fileDir string
 	var prefix string
 	if tmpIdx == -1 {
 		fileDir = "."
-		prefix = fileName + "_divide" + strconv.Itoa(divideIdx) + "_seek"
+		prefix = getTmpFilePrefix(fileName, divideIdx)
 	} else {
 		fileDir = fileName[:tmpIdx]
-		prefix = fileName[tmpIdx+1:] + "_divide" + strconv.Itoa(divideIdx) + "_seek"
+		prefix = getTmpFilePrefix(fileName[tmpIdx+1:], divideIdx)
 	}
 	dir, err := ioutil.ReadDir(fileDir)
 	if err != nil {
@@ -285,7 +285,10 @@ func getOutputFileNames(fileName string, divideIdx int) (files []string, err err
 	}
 
 	return files, nil
+}
 
+func getTmpFilePrefix(fileName string, divideIdx int) string {
+	return fileName + "_divide" + strconv.Itoa(divideIdx) + "_pid" + strconv.Itoa(os.Getpid()) + "_seek"
 }
 
 func writeBuffered(fw *os.File, buffer []byte, offset int, maxBufferSize int, e element) (newOffset int, err error) {

@@ -95,20 +95,28 @@ func GroupBy(fileName string) (res *Result, err error) {
 		for relativeIdx := 0; relativeIdx < inMemoryDivideNum; relativeIdx++ {
 			wg.Add(1)
 			divideIdx := divideNum - remainsDivideNum + relativeIdx
+			fileNames, tmpErr := getTmpFileNames(fileName, divideIdx)
+			if tmpErr != nil {
+				err = tmpErr
+				return
+			}
 			go func() {
 				defer wg.Done()
 				m := make(map[element]byte)
-				fileNames, tmpErr := getOutputFileNames(fileName, divideIdx)
-				if tmpErr != nil {
-					err = tmpErr
-					return
-				}
-				for _, fileName := range fileNames {
+				for fileNameIdx := range fileNames {
+					fileName := fileNames[fileNameIdx]
 					fr, tmpErr := os.Open(fileName)
 					if tmpErr != nil {
 						err = tmpErr
 						return
 					}
+					defer func() {
+						fr.Close()
+						tmpErr = os.Remove(fileName)
+						if tmpErr != nil && err == nil {
+							err = tmpErr
+						}
+					} ()
 					tmpErr = readFile(fr, math.MaxInt64, func(e element) error {
 						m[e] = 0
 						return nil
