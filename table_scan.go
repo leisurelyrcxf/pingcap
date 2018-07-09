@@ -198,7 +198,7 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 	})
 }
 
-func readFile(f *os.File, maxRead int64, elementFound func(element) error, eofFound func() error) error {
+func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onEnd func() error) error {
 	buffer := make([]byte, pageSize)
 	state := stateNonNumber
 	number := make([]byte, 0, 64)
@@ -249,7 +249,7 @@ func readFile(f *os.File, maxRead int64, elementFound func(element) error, eofFo
 					if err != nil {
 						return err
 					}
-					err = elementFound(element{a:first, b:second})
+					err = onElementFound(element{a:first, b:second})
 					if err != nil {
 						return err
 					}
@@ -262,14 +262,8 @@ func readFile(f *os.File, maxRead int64, elementFound func(element) error, eofFo
 			}
 		}
 		leftRead -= int64(nRead)
-		if eofMet {
-			err = eofFound()
-			if err != nil {
-				return err
-			}
-		}
 	}
-	return nil
+	return onEnd()
 }
 
 func hash(num int64, divide int) int {

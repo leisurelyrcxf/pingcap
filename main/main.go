@@ -32,9 +32,17 @@ func main() {
 	}
 	fmt.Printf("a\tavg(distinct b)\n")
 	sort.Sort(sortedRows(res.Rows))
+
+	errNum := 0
 	for _, row := range res.Rows {
 		if math.Abs(row.Avg - 4999.5) > 1e-2 {
 			fmt.Printf("%v\t%v\n", row.A, row.Avg)
+			errNum++
 		}
+	}
+	if errNum == 0 {
+		fmt.Println("test succeeded")
+	} else {
+		fmt.Println("regressioned")
 	}
 }
