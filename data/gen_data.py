@@ -13,7 +13,7 @@ for i in range(first):
         fw.write("\t")
         fw.write(str(j))
         fw.write("\n")
-        if j%3 == 0:
+        if j%2 == 0 or j%3 == 0:
             fw.write(str(i))
             fw.write("\t")
             fw.write(str(j))
