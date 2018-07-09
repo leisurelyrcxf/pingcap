@@ -16,7 +16,7 @@ const blockSize = 1024 * 4 //4kb
 
 // parallelReadMinSize is the mean size for using parallel read
 const parallelReadMinSize = 1024*1024 // 1 MB
-var defaultParallelReadNum = runtime.NumCPU()
+var defaultParallelReaderNum = runtime.NumCPU()
 var defaultInMemoryDivide = runtime.NumCPU()
 
 // change this according to your application
@@ -25,8 +25,11 @@ var maxAvailableMemory int64 = 1024*1024*256 // 256 MB
 
 // estimated value, cause for every record in S, in the worst case
 // there should be two hash table records using that value in the
-// meantime
-const memoryConflateRate = 5
+// meantime. In the best case, memoryConflateRate can be very small,
+// e.g., if all elements are the same, the value can be 1/rowNum
+// Because the value can be hard to decide, thus a sampling algorithm
+// may be used to decide the value. This is left as a TODO
+const memoryConflateRate = 5.0
 
 type element struct {
 	a int64
@@ -60,16 +63,16 @@ func readAndDivideInParallel(fileName string) (handlers []handler, parallelReade
 		parallelReaderNum = 1
 		divideNum = defaultInMemoryDivide
 		inMemoryDivideNum = defaultInMemoryDivide
-	} else if size*memoryConflateRate < maxAvailableMemory {
+	} else if float64(size)*memoryConflateRate < float64(maxAvailableMemory) {
 		// all can be put into memory
-		parallelReaderNum = defaultParallelReadNum
+		parallelReaderNum = defaultParallelReaderNum
 		divideNum = defaultInMemoryDivide
 		inMemoryDivideNum = defaultInMemoryDivide
 	} else {
-		parallelReaderNum = defaultParallelReadNum
+		parallelReaderNum = defaultParallelReaderNum
 		// in this case, only first defaultInMemoryDivide divisions will be in memory
 		// others will be flushed onto disks
-		divideNum = int(size*int64(memoryConflateRate)/int64(maxAvailableMemory)+1)*defaultInMemoryDivide
+		divideNum = int(int64(float64(size)*memoryConflateRate)/int64(maxAvailableMemory)+1)*defaultInMemoryDivide
 		inMemoryDivideNum = defaultInMemoryDivide
 	}
 
