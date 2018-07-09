@@ -34,13 +34,13 @@ func main() {
 	sort.Sort(sortedRows(res.Rows))
 
 	errNum := 0
-	for _, row := range res.Rows {
-		if math.Abs(row.Avg - 4999.5) > 1e-2 {
+	for rowIdx, row := range res.Rows {
+		if row.A != int64(rowIdx) || math.Abs(row.Avg - 4999.5) > 1e-2 {
 			fmt.Printf("%v\t%v\n", row.A, row.Avg)
 			errNum++
 		}
 	}
-	if errNum == 0 {
+	if errNum == 0 && len(res.Rows) == 10000 {
 		fmt.Println("test succeeded")
 	} else {
 		fmt.Println("regressioned")

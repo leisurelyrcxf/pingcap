@@ -6,15 +6,16 @@ import (
 	"io"
 	"fmt"
 	"strconv"
-	//"runtime"
 	"io/ioutil"
 	"strings"
 	"runtime"
 )
 
+// pageSize is the disk page size, usually 4kb
 const pageSize = 1024 * 4 //4kb
 
-const parallelReadMinSize = 1024*1024
+// parallelReadMinSize is the mean size for using parallel read
+const parallelReadMinSize = 1024*1024 // 1 MB
 var defaultParallelReadNum = runtime.NumCPU()
 var defaultInMemoryDivide = runtime.NumCPU()
 
@@ -23,10 +24,9 @@ var maxAvailableMemory int64 = 1024*1024*256 // 256 MB
 //var maxAvailableMemory int64 = 1024*1024*48 // 48 MB
 
 // estimated value, cause for every record in S, in the worst case
-// there should be two hash table records using that value
+// there should be two hash table records using that value in the
+// meantime
 const memoryConflateRate = 5
-
-const csvDelimiter = '\t'
 
 type element struct {
 	a int64
@@ -39,7 +39,10 @@ type handler struct {
 }
 
 
-// give a file, return multiple channel, channel size is max to 1026
+// readParallel reads and divides a file in parallel
+// Depending on the available memory size, it will choose
+// different mechanism to divide, it will flush onto disks
+// if no memory is available
 func readParallel(fileName string) (handlers []handler, parallelReadNum, divideNum, inMemoryDivideNum int, err error) {
 	f, err := os.Open(fileName)
 	if err != nil {
@@ -64,9 +67,9 @@ func readParallel(fileName string) (handlers []handler, parallelReadNum, divideN
 		inMemoryDivideNum = defaultInMemoryDivide
 	} else {
 		parallelReadNum = defaultParallelReadNum
-		divideNum = int(size*int64(memoryConflateRate)/int64(maxAvailableMemory)+1)*defaultInMemoryDivide
 		// in this case, only first defaultInMemoryDivide divisions will be in memory
 		// others will be flushed onto disks
+		divideNum = int(size*int64(memoryConflateRate)/int64(maxAvailableMemory)+1)*defaultInMemoryDivide
 		inMemoryDivideNum = defaultInMemoryDivide
 	}
 
@@ -106,7 +109,6 @@ func readParallel(fileName string) (handlers []handler, parallelReadNum, divideN
 	return handlers, parallelReadNum, divideNum, inMemoryDivideNum, nil
 }
 
-// align to new line
 func alignToNewLine(f *os.File, start int64) (int64, error) {
 	_, err := f.Seek(start, 0)
 	if err != nil {
@@ -130,6 +132,11 @@ func alignToNewLine(f *os.File, start int64) (int64, error) {
 const stateNumber = 1
 const stateNonNumber = 0
 
+
+// oneStream Read from seekStart until read maxRead or met eof
+// divide into divideNum buckets
+// For inMemoryDivideNum, transfer to channel
+// Otherwise, flush to file system
 func oneStream(fileName string, elements []chan element, seekStart int64, maxRead int64, divideNum, inMemoryDivideNum int) error {
 	f, err := os.Open(fileName)
 	if err != nil {
@@ -267,6 +274,26 @@ func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onE
 	return onEnd()
 }
 
+func writeBuffered(fw *os.File, buffer []byte, offset int, maxBufferSize int, e element) (newOffset int, err error) {
+	row := []byte(elementToRow(e))
+	for _, b := range row {
+		buffer[offset] = b
+		offset++
+		if offset == maxBufferSize {
+			_, err := fw.Write(buffer)
+			if err != nil {
+				return 0, err
+			}
+			err = fw.Sync()
+			if err != nil {
+				return 0, err
+			}
+			offset = 0
+		}
+	}
+	return offset, nil
+}
+
 func hash(num int64, divide int) int {
 	return int(num%int64(divide))
 }
@@ -307,26 +334,6 @@ func getTmpFileNames(fileName string, divideIdx int) (files []string, err error)
 
 func getTmpFilePrefix(fileName string, divideIdx int) string {
 	return fileName + "_divide" + strconv.Itoa(divideIdx) + "_pid" + strconv.Itoa(os.Getpid()) + "_seek"
-}
-
-func writeBuffered(fw *os.File, buffer []byte, offset int, maxBufferSize int, e element) (newOffset int, err error) {
-	row := []byte(elementToRow(e))
-	for _, b := range row {
-		buffer[offset] = b
-		offset++
-		if offset == maxBufferSize {
-			_, err := fw.Write(buffer)
-			if err != nil {
-				return 0, err
-			}
-			err = fw.Sync()
-			if err != nil {
-				return 0, err
-			}
-			offset = 0
-		}
-	}
-	return offset, nil
 }
 
 func elementToRow(e element) string {
