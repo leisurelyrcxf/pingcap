@@ -19,6 +19,9 @@ const parallelReadMinSize = 1024*1024 // 1 MB
 var defaultParallelReaderNum = runtime.NumCPU()
 var defaultInMemoryDivide = runtime.NumCPU()/2
 
+var defaultBufferSize = blockSize * 4 // 256kb
+var defaultChannelSize = 1024
+
 // change this according to your application
 var maxAvailableMemory int64 = 1024*1024*256 // 256 MB
 //var maxAvailableMemory int64 = 1024*1024*48 // 48 MB
@@ -97,7 +100,7 @@ func readAndDivideInParallel(fileName string) (handlers []handler, parallelReade
 		idx := i
 		handlers[i].elements = make([]chan element, inMemoryDivideNum)
 		for j := 0; j < inMemoryDivideNum; j++ {
-			handlers[i].elements[j] = make(chan element, blockSize)
+			handlers[i].elements[j] = make(chan element, defaultChannelSize)
 		}
 		go func() {
 			defer func() {
@@ -159,6 +162,14 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 		fwHandlers = make([]*os.File, divideNum - inMemoryDivideNum)
 		fwOffsets = make([]int, divideNum - inMemoryDivideNum)
 		fwBuffers = make([][]byte, divideNum - inMemoryDivideNum)
+		defer func() {
+			for i := inMemoryDivideNum; i < divideNum; i++ {
+				divideRelativeIdx := i - inMemoryDivideNum
+				if fwHandlers[divideRelativeIdx] != nil {
+					fwHandlers[divideRelativeIdx].Close()
+				}
+			}
+		} ()
 		for i := inMemoryDivideNum; i < divideNum; i++ {
 			divideIdx := i
 			divideRelativeIdx := divideIdx - inMemoryDivideNum
@@ -167,9 +178,8 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 			if err != nil {
 				return err
 			}
-			defer fwHandlers[divideRelativeIdx].Close()
 			fwOffsets[divideRelativeIdx] = 0
-			fwBuffers[divideRelativeIdx] = make([]byte, blockSize)
+			fwBuffers[divideRelativeIdx] = make([]byte, defaultBufferSize)
 		}
 	}
 
@@ -183,7 +193,7 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 			divideRelativeIdx := hashed - inMemoryDivideNum
 			var err error
 			fwOffsets[divideRelativeIdx], err = writeBuffered(fwHandlers[divideRelativeIdx], fwBuffers[divideRelativeIdx],
-				fwOffsets[divideRelativeIdx], blockSize, e)
+				fwOffsets[divideRelativeIdx], defaultBufferSize, e)
 			if err != nil {
 				return err
 			}
@@ -203,6 +213,7 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 				if err != nil {
 					return err
 				}
+				fwBuffers[divideRelativeIdx] = nil
 			}
 		}
 		return nil
@@ -210,7 +221,7 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 }
 
 func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onEnd func() error) error {
-	buffer := make([]byte, blockSize)
+	buffer := make([]byte, defaultBufferSize)
 	state := stateNonNumber
 	number := make([]byte, 0, 64)
 	var first int64
@@ -219,7 +230,7 @@ func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onE
 	var eofMet bool
 	leftRead := maxRead
 	for leftRead > 0 && !eofMet {
-		if leftRead < blockSize {
+		if leftRead < int64(defaultBufferSize) {
 			buffer = buffer[:leftRead]
 		}
 		nRead, err := f.Read(buffer)
@@ -274,10 +285,11 @@ func readFile(f *os.File, maxRead int64, onElementFound func(element) error, onE
 		}
 		leftRead -= int64(nRead)
 	}
+	buffer = nil
 	return onEnd()
 }
 
-func writeBuffered(fw *os.File, buffer []byte, offset int, maxBufferSize int, e element) (newOffset int, err error) {
+func writeBuffered(fw *os.File, buffer []byte, offset, maxBufferSize int, e element) (newOffset int, err error) {
 	row := []byte(elementToRow(e))
 	for _, b := range row {
 		buffer[offset] = b
