@@ -39,7 +39,7 @@ func GroupBy(fileName string) (res *Result, err error) {
 			m := make(map[element]byte)
 
 			agg := make(chan element)
-			done := 0
+			aggDone := 0
 			var aggMutex sync.Mutex
 			for j := 0; j < parallelReaderNum; j++ {
 				go func(c chan element) {
@@ -48,22 +48,15 @@ func GroupBy(fileName string) (res *Result, err error) {
 					}
 					aggMutex.Lock()
 					defer aggMutex.Unlock()
-					done++
-					if done == parallelReaderNum {
+					aggDone++
+					if aggDone == parallelReaderNum {
 						close(agg)
 					}
 				}(handlers[j].elements[divideIdx])
 			}
-			for  {
-				select {
-				case element, ok := <-agg:
-					if !ok {
-						goto jump
-					}
-					m[element] = 0
-				}
+			for element := range agg {
+				m[element] = 0
 			}
-			jump:
 			for j := 0; j < parallelReaderNum; j++ {
 				if handlers[j].err != nil {
 					err = handlers[j].err
