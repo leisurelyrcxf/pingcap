@@ -19,7 +19,7 @@ const parallelReadMinSize = 1024*1024 // 1 MB
 var defaultParallelReaderNum = runtime.NumCPU()
 var defaultInMemoryDivide = runtime.NumCPU()/2
 
-var defaultBufferSize = blockSize * 4 // 256kb
+var defaultBufferSize = blockSize * 64 // 256kb
 var defaultChannelSize = 1024
 
 // change this according to your application
