@@ -58,5 +58,31 @@ for i in range(11):
 	fw.write("4")
 	fw.write("\n")
 
+
+for i in range(first):
+	fw.write("0")
+	fw.write("\t")
+	fw.write("0")
+	fw.write("\n")
+
+for i in range(second):
+	fw.write("0")
+	fw.write("\t")
+	fw.write("0")
+	fw.write("\n")
+
+
+for i in range(first):
+	fw.write("2")
+	fw.write("\t")
+	fw.write("2")
+	fw.write("\n")
+
+for i in range(second):
+	fw.write("2")
+	fw.write("\t")
+	fw.write("2")
+	fw.write("\n")
+
 fw.close()
 

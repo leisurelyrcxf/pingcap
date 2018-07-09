@@ -17,7 +17,7 @@ var defaultInMemoryDivide = 2 //runtime.NumCPU()
 
 // change this according to your application
 //var maxAvailableMemory = 1024*1024*256 // 256 MB
-var maxAvailableMemory int64 = 1024*1024*25
+var maxAvailableMemory int64 = 1024*1024*48
 
 // estimated value, cause for every record in S,
 // there should be two hash table records using that value
@@ -122,10 +122,6 @@ func alignToNewLine(f *os.File, start int64) (int64, error) {
 		return start, fmt.Errorf("can't find '\n'")
 	}
 	return start + offset + 1, nil
-}
-
-func hash(num int64, divide int) int {
-	return int(num%int64(divide))
 }
 
 const stateNumber = 1
@@ -238,6 +234,10 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 	return nil
 }
 
+func hash(num int64, divide int) int {
+	return int(num%int64(divide))
+}
+
 func getOutputFileName(fileName string, divideIdx int, seekStart int64) string {
 	return fileName + "_divide" + strconv.Itoa(divideIdx) + "_seek" + strconv.FormatInt(seekStart, 10) +  ".tmp"
 }
@@ -249,6 +249,7 @@ func writeBuffered(fw *os.File, buffer []byte, offset int, maxBufferSize int, e 
 		offset++
 		if offset == maxBufferSize {
 			fw.Write(buffer)
+			fw.Sync()
 			offset = 0
 		}
 	}
