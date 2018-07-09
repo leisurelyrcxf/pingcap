@@ -71,6 +71,7 @@ func GroupBy(fileName string) (res *Result, err error) {
 					count:old.count + 1,
 				}
 			}
+			m = nil
 
 			qrResult := &Result{
 				Rows: make([]*ResultRow, 0, 100),
@@ -78,6 +79,7 @@ func GroupBy(fileName string) (res *Result, err error) {
 			for a := range mm {
 				qrResult.Rows = append(qrResult.Rows, &ResultRow{A: a, Avg: float64(mm[a].sum)/float64(mm[a].count) })
 			}
+			mm = nil
 			mu.Lock()
 			defer mu.Unlock()
 			res.Rows = append(res.Rows, qrResult.Rows...)
@@ -120,6 +122,8 @@ func GroupBy(fileName string) (res *Result, err error) {
 					tmpErr = readFile(fr, math.MaxInt64, func(e element) error {
 						m[e] = 0
 						return nil
+					}, func() error {
+						return nil
 					})
 					if tmpErr != nil {
 						err = tmpErr
@@ -134,6 +138,7 @@ func GroupBy(fileName string) (res *Result, err error) {
 						count:old.count + 1,
 					}
 				}
+				m = nil
 
 				qrResult := &Result{
 					Rows: make([]*ResultRow, 0, 100),
@@ -141,6 +146,7 @@ func GroupBy(fileName string) (res *Result, err error) {
 				for a := range mm {
 					qrResult.Rows = append(qrResult.Rows, &ResultRow{A: a, Avg: float64(mm[a].sum)/float64(mm[a].count) })
 				}
+				mm = nil
 				mu.Lock()
 				defer mu.Unlock()
 				res.Rows = append(res.Rows, qrResult.Rows...)

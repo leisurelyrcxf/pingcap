@@ -21,7 +21,7 @@ var defaultInMemoryDivide = 2 //runtime.NumCPU()
 //var maxAvailableMemory = 1024*1024*256 // 256 MB
 var maxAvailableMemory int64 = 1024*1024*48
 
-// estimated value, cause for every record in S,
+// estimated value, cause for every record in S, in the worst case
 // there should be two hash table records using that value
 const memoryConflateRate = 5
 
@@ -176,12 +176,29 @@ func oneStream(fileName string, elements []chan element, seekStart int64, maxRea
 			if err != nil {
 				return err
 			}
+
+		}
+		return nil
+	}, func() error {
+		if divideNum > inMemoryDivideNum {
+			for i := inMemoryDivideNum; i < divideNum; i++ {
+				divideIdx := i
+				divideRelativeIdx := divideIdx - inMemoryDivideNum
+				_, err := fwHandlers[divideRelativeIdx].Write(fwBuffers[divideRelativeIdx][:fwOffsets[divideRelativeIdx]])
+				if err != nil {
+					return err
+				}
+				err = fwHandlers[divideRelativeIdx].Sync()
+				if err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	})
 }
 
-func readFile(f *os.File, maxRead int64, callback func(element) error) error {
+func readFile(f *os.File, maxRead int64, elementFound func(element) error, eofFound func() error) error {
 	buffer := make([]byte, pageSize)
 	state := stateNonNumber
 	number := make([]byte, 0, 64)
@@ -201,7 +218,6 @@ func readFile(f *os.File, maxRead int64, callback func(element) error) error {
 			}
 			eofMet = true
 		}
-		leftRead -= int64(nRead)
 		for i := 0; i < nRead; i++ {
 			b := buffer[i]
 			switch state {
@@ -233,7 +249,7 @@ func readFile(f *os.File, maxRead int64, callback func(element) error) error {
 					if err != nil {
 						return err
 					}
-					err = callback(element{a:first, b:second})
+					err = elementFound(element{a:first, b:second})
 					if err != nil {
 						return err
 					}
@@ -243,6 +259,13 @@ func readFile(f *os.File, maxRead int64, callback func(element) error) error {
 				} else {
 					return fmt.Errorf("unknown input character '%v'", b)
 				}
+			}
+		}
+		leftRead -= int64(nRead)
+		if eofMet {
+			err = eofFound()
+			if err != nil {
+				return err
 			}
 		}
 	}
