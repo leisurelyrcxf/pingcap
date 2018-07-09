@@ -20,7 +20,7 @@ var defaultParallelReadNum = runtime.NumCPU()
 var defaultInMemoryDivide = runtime.NumCPU()
 
 // change this according to your application
-var maxAvailableMemory int64 = 1024*1024*256*4 // 256 MB
+var maxAvailableMemory int64 = 1024*1024*256 // 256 MB
 //var maxAvailableMemory int64 = 1024*1024*48 // 48 MB
 
 // estimated value, cause for every record in S, in the worst case
@@ -39,11 +39,11 @@ type handler struct {
 }
 
 
-// readParallel reads and divides a file in parallel
+// readAndDivideInParallel reads and divides a file in parallel
 // Depending on the available memory size, it will choose
 // different mechanism to divide, it will flush onto disks
 // if no memory is available
-func readParallel(fileName string) (handlers []handler, parallelReadNum, divideNum, inMemoryDivideNum int, err error) {
+func readAndDivideInParallel(fileName string) (handlers []handler, parallelReaderNum, divideNum, inMemoryDivideNum int, err error) {
 	f, err := os.Open(fileName)
 	if err != nil {
 		return nil, 0, 0, 0, err
@@ -57,26 +57,26 @@ func readParallel(fileName string) (handlers []handler, parallelReadNum, divideN
 	}
 	size := fi.Size()
 	if size < parallelReadMinSize {
-		parallelReadNum = 1
+		parallelReaderNum = 1
 		divideNum = defaultInMemoryDivide
 		inMemoryDivideNum = defaultInMemoryDivide
 	} else if size*memoryConflateRate < maxAvailableMemory {
 		// all can be put into memory
-		parallelReadNum = defaultParallelReadNum
+		parallelReaderNum = defaultParallelReadNum
 		divideNum = defaultInMemoryDivide
 		inMemoryDivideNum = defaultInMemoryDivide
 	} else {
-		parallelReadNum = defaultParallelReadNum
+		parallelReaderNum = defaultParallelReadNum
 		// in this case, only first defaultInMemoryDivide divisions will be in memory
 		// others will be flushed onto disks
 		divideNum = int(size*int64(memoryConflateRate)/int64(maxAvailableMemory)+1)*defaultInMemoryDivide
 		inMemoryDivideNum = defaultInMemoryDivide
 	}
 
-	split := size/int64(parallelReadNum)
-	seekPositions := make([]int64, parallelReadNum+1)
-	seekPositions[parallelReadNum] = math.MaxInt64
-	for i := 0; i < parallelReadNum; i++ {
+	split := size/int64(parallelReaderNum)
+	seekPositions := make([]int64, parallelReaderNum+1)
+	seekPositions[parallelReaderNum] = math.MaxInt64
+	for i := 0; i < parallelReaderNum; i++ {
 		seekPositions[i] = int64(i) * split
 		if i > 0 {
 			seekPositions[i], err = alignToNewLine(f, seekPositions[i])
@@ -88,9 +88,9 @@ func readParallel(fileName string) (handlers []handler, parallelReadNum, divideN
 
 
 
-	handlers = make([]handler, parallelReadNum)
+	handlers = make([]handler, parallelReaderNum)
 
-	for i := 0; i < parallelReadNum; i++ {
+	for i := 0; i < parallelReaderNum; i++ {
 		idx := i
 		handlers[i].elements = make([]chan element, inMemoryDivideNum)
 		for j := 0; j < inMemoryDivideNum; j++ {
@@ -106,7 +106,7 @@ func readParallel(fileName string) (handlers []handler, parallelReadNum, divideN
 			handlers[idx].err = oneStream(fileName, handlers[idx].elements, seekPositions[idx], seekPositions[idx+1] - seekPositions[idx], divideNum, inMemoryDivideNum)
 		}()
 	}
-	return handlers, parallelReadNum, divideNum, inMemoryDivideNum, nil
+	return handlers, parallelReaderNum, divideNum, inMemoryDivideNum, nil
 }
 
 func alignToNewLine(f *os.File, start int64) (int64, error) {

@@ -21,7 +21,7 @@ type aggStruct struct {
 }
 
 func GroupBy(fileName string) (res *Result, err error) {
-	handlers, parallelNum, divideNum, inMemoryDivideNum, err := readParallel(fileName)
+	handlers, parallelReaderNum, divideNum, inMemoryDivideNum, err := readAndDivideInParallel(fileName)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func GroupBy(fileName string) (res *Result, err error) {
 			m := make(map[element]byte)
 			for {
 				done := 0
-				for j := 0; j < parallelNum; j++ {
+				for j := 0; j < parallelReaderNum; j++ {
 					select {
 					case element, ok := <- handlers[j].elements[divideIdx]:
 						if !ok {
@@ -58,7 +58,10 @@ func GroupBy(fileName string) (res *Result, err error) {
 						break
 					}
 				}
-				if err != nil || done == parallelNum {
+				if err != nil || done == parallelReaderNum {
+					// has error or all readers of divideIdx
+					// has been read, which means division of
+					// divideIdx has been ready
 					break
 				}
 			}
